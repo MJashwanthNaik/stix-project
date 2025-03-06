@@ -1,0 +1,60 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from sunpy.net import Fido, attrs as a
+import astropy.units as u
+from sunpy.timeseries import TimeSeries
+import sunpy.map
+from sunpy.data.sample import AIA_171_IMAGE  # Sample AIA image
+from astropy.coordinates import SkyCoord
+
+# === STEP 1: FETCH STIX X-RAY DATA ===
+start_time = "2025-01-25T00:00:00"  # Time range of interest
+end_time = "2025-01-25T23:59:59"
+
+# Search for STIX Quicklook X-ray data
+results = Fido.search(
+    a.Time(start_time, end_time),
+    a.Instrument("STIX"),
+    a.Level("QL")
+)
+
+# Check if data is available
+if not results:
+    print("No STIX data available for this time period.")
+else:
+    # Download the first dataset
+    ql_files = Fido.fetch(results[0])
+    print("Downloaded STIX Files:", ql_files)
+
+    # Load STIX X-ray time series
+    ql_lightcurves = TimeSeries(ql_files)
+    combined_ts = ql_lightcurves[0]
+
+    # Merge all timeseries
+    for lc in ql_lightcurves[1:]:
+        combined_ts = combined_ts.concatenate(lc)
+
+    # === STEP 2: FIND PEAK X-RAY INTENSITY ===
+    xray_flux = combined_ts.to_dataframe().iloc[:, 0]  # First column (counts)
+    peak_time = xray_flux.idxmax()  # Time of max X-ray intensity
+    print(f"Peak X-ray detected at: {peak_time}")
+
+    # === STEP 3: PROJECT PEAK TIME ON HELIOPROJECTIVE IMAGE ===
+    # Load AIA 171 Å image as a background
+    aia_map = sunpy.map.Map(AIA_171_IMAGE)
+
+    # Define a dummy source location (replace with real STIX localization if available)
+    source_coord = SkyCoord(500 * u.arcsec, 300 * u.arcsec, frame=aia_map.coordinate_frame)
+
+    # Convert to pixel coordinates
+    px, py = aia_map.wcs.world_to_pixel(source_coord)
+
+    # === STEP 4: PLOT AIA IMAGE WITH X-RAY PEAK LOCATION ===
+    fig = plt.figure(figsize=(8, 8))
+    ax = plt.subplot(projection=aia_map)
+    aia_map.plot()  # Plot AIA image
+    ax.plot_coord(source_coord, 'rx', markersize=10, label="X-ray Peak")  # Mark X-ray peak
+
+    plt.title(f"STIX X-ray Peak Projection on AIA 171Å\nTime: {peak_time}")
+    plt.legend()
+    plt.show()
